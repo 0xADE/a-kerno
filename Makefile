@@ -1,5 +1,5 @@
 ##
-# Project Name
+# a-kerno
 #
 # @file
 # @version 0.1
@@ -7,9 +7,9 @@
 # Go Makefile
 
 # Variables
-PRJ=project_name
+PRJ=a-kerno
+APP=a-kerno
 BINDIR=build
-
 PREFIX?=/usr/local/bin
 
 # Replace it with "sudo", "doas" or somethat, that allows root privileges on your
@@ -29,10 +29,6 @@ all: build
 build:
 	$(foreach dir,$(wildcard cmd/*), echo "$(dir) building..."; go build $(FLAGS) -o $(BINDIR)/ ./$(dir);)
 
-.PHONY: docker-build
-docker-build: # just set token into GITHUB_TOKEN environment variable
-	docker build -f Dockerfile -t local:$(PRJ) --secret id=github_token,env=GITHUB_TOKEN .
-
 .PHONY: test
 test:
 	go tool ginkgo ./...
@@ -40,10 +36,6 @@ test:
 .PHONY: run
 run: build
 	./$(BINDIR)/$(APP)
-
-.PHONY: run-log
-run-log: tidy build
-	SLOG_LEVEL=debug ./$(BINDIR)/$(APP)
 
 .PHONY: run-race
 run-race: tidy
@@ -53,9 +45,20 @@ run-race: tidy
 lint:
 	go tool golangci-lint run ./...
 
+.PHONY: lint-fix
+lint-fix:
+	go tool golangci-lint run --fix ./...
+
 .PHONY: tidy
 tidy:
 	go mod tidy
+
+# Build under regular user, only install under root!
+.PHONY: install
+install: build
+	@echo "Don't forget to set SUDO=sudo (or SUDO=doas) before this command!"
+	@echo "for example: SUDO=doas make install"
+	$(SUDO) install ./build/$(APP) $(PREFIX)
 
 .PHONY: sloc
 sloc:
