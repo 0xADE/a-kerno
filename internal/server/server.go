@@ -5,7 +5,6 @@
 package server
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -64,7 +63,8 @@ func (s *Server) Start(ctx context.Context) error {
 	// Remove stale socket file if it exists.
 	_ = os.Remove(s.socketPath)
 
-	listener, err := net.Listen("unix", s.socketPath)
+	listCfg := net.ListenConfig{}
+	listener, err := listCfg.Listen(ctx, "unix", s.socketPath)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", s.socketPath, err)
 	}
@@ -147,7 +147,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	// Read first 4 bytes to detect binary protocol.
-	magic := make([]byte, 4)
+	magic := make([]byte, 4, 5)
 	if _, err := io.ReadFull(conn, magic); err != nil {
 		s.logger.Warn("failed to read magic", "error", err)
 		return
@@ -317,20 +317,6 @@ func (s *Server) writeError(conn net.Conn, cmdName, errType, desc string) {
 	}
 	// Best-effort write; connection may already be broken.
 	_, _ = fmt.Fprint(conn, msg)
-}
-
-// readLine reads a single line from the connection using a bufio.Scanner.
-// This is a utility function shared by handlers that need to read extra
-// data beyond the CMDLIST command.
-func readLine(conn net.Conn) (string, error) {
-	scanner := bufio.NewScanner(conn)
-	if scanner.Scan() {
-		return scanner.Text(), nil
-	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-	return "", io.EOF
 }
 
 // bytesReader returns an io.Reader that yields the given bytes.

@@ -12,8 +12,15 @@ import (
 	"github.com/0xADE/a-kerno/parser"
 )
 
+const (
+	// errProgManagerNotInit is returned when program manager is not initialized.
+	errProgManagerNotInit = "program manager not initialized"
+	// stateFailed is the string representation of a failed state.
+	stateFailed = "failed"
+)
+
 // handleListDaemons returns a formatted list of all managed daemons.
-func handleListDaemons(s *Server, cmd *parser.Command) string {
+func handleListDaemons(s *Server, _ *parser.Command) string {
 	daemons := s.manager.List()
 
 	total := len(daemons)
@@ -140,7 +147,7 @@ func handleStart(s *Server, cmd *parser.Command) string {
 }
 
 // handleListFeatures returns the feature registry as a formatted list.
-func handleListFeatures(s *Server, cmd *parser.Command) string {
+func handleListFeatures(s *Server, _ *parser.Command) string {
 	if s.features == nil {
 		return parser.FormatError("feature registry not initialized")
 	}
@@ -161,7 +168,7 @@ func handleListFeatures(s *Server, cmd *parser.Command) string {
 
 	var bodyLines []string
 	for _, f := range features {
-		state := "failed"
+		state := stateFailed
 		extra := ""
 		if f.Ready {
 			state = "ready"
@@ -219,7 +226,7 @@ func handleLogs(s *Server, cmd *parser.Command) string {
 }
 
 // handleShutdown triggers a graceful shutdown of a-kerno.
-func handleShutdown(s *Server, cmd *parser.Command) string {
+func handleShutdown(s *Server, _ *parser.Command) string {
 	attrs := "cmd: shutdown\nstatus: 0\nmsg: shutting down all daemons\n"
 	s.cancel()
 	return parser.FormatOKWithBody(attrs, "")
@@ -230,9 +237,9 @@ func handleShutdown(s *Server, cmd *parser.Command) string {
 // ---------------------------------------------------------------------------
 
 // handleListPrograms returns a formatted list of all user programs.
-func handleListPrograms(s *Server, cmd *parser.Command) string {
+func handleListPrograms(s *Server, _ *parser.Command) string {
 	if s.pm == nil {
-		return parser.FormatError("program manager not initialized")
+		return parser.FormatError(errProgManagerNotInit)
 	}
 
 	progs := s.pm.List()
@@ -275,7 +282,7 @@ func handleListPrograms(s *Server, cmd *parser.Command) string {
 // handleProgramStatus returns detailed status for a specific program.
 func handleProgramStatus(s *Server, cmd *parser.Command) string {
 	if s.pm == nil {
-		return parser.FormatError("program manager not initialized")
+		return parser.FormatError(errProgManagerNotInit)
 	}
 
 	if len(cmd.Args) == 0 || cmd.Args[0].Type != parser.TypeString {
@@ -321,7 +328,7 @@ func handleProgramStatus(s *Server, cmd *parser.Command) string {
 // handleStartProgram starts a program by name.
 func handleStartProgram(s *Server, cmd *parser.Command) string {
 	if s.pm == nil {
-		return parser.FormatError("program manager not initialized")
+		return parser.FormatError(errProgManagerNotInit)
 	}
 
 	if len(cmd.Args) == 0 || cmd.Args[0].Type != parser.TypeString {
@@ -346,7 +353,7 @@ func handleStartProgram(s *Server, cmd *parser.Command) string {
 // handleStopProgram stops a program by name.
 func handleStopProgram(s *Server, cmd *parser.Command) string {
 	if s.pm == nil {
-		return parser.FormatError("program manager not initialized")
+		return parser.FormatError(errProgManagerNotInit)
 	}
 
 	if len(cmd.Args) == 0 || cmd.Args[0].Type != parser.TypeString {
@@ -385,8 +392,8 @@ var _ = strconv.Itoa
 // BIN01 binary protocol handlers (Phase 6)
 // ---------------------------------------------------------------------------
 
-// binAttrString extracts a string attribute from a BinCommand.
-func binAttrString(cmd *binparser.BinCommand, key string) (string, bool) {
+// binAttr extracts a named string attribute from a BinCommand.
+func binAttr(cmd *binparser.BinCommand, key string) (string, bool) {
 	if cmd.Attrs == nil {
 		return "", false
 	}
@@ -397,6 +404,9 @@ func binAttrString(cmd *binparser.BinCommand, key string) (string, bool) {
 	s, ok := v.(string)
 	return s, ok
 }
+
+// binAttrName extracts the "name" attribute from a BinCommand.
+func binAttrName(cmd *binparser.BinCommand) (string, bool) { return binAttr(cmd, "name") }
 
 // binAttrInt extracts an int64 attribute from a BinCommand.
 func binAttrInt(cmd *binparser.BinCommand, key string) (int64, bool) {
@@ -411,13 +421,8 @@ func binAttrInt(cmd *binparser.BinCommand, key string) (int64, bool) {
 	return i, ok
 }
 
-// binFormatDaemonList formats daemons for a binary response message.
-func binFormatDaemonList(daemons []*daemon.Daemon) string {
-	return formatDaemonList(daemons)
-}
-
 // handleBinListDaemons handles the binary list-daemons command.
-func handleBinListDaemons(s *Server, cmd *binparser.BinCommand) (byte, string) {
+func handleBinListDaemons(s *Server, _ *binparser.BinCommand) (byte, string) {
 	daemons := s.manager.List()
 	total := len(daemons)
 	running := 0
@@ -426,14 +431,13 @@ func handleBinListDaemons(s *Server, cmd *binparser.BinCommand) (byte, string) {
 			running++
 		}
 	}
-	body := binFormatDaemonList(daemons)
-	msg := fmt.Sprintf("total=%d running=%d\n%s", total, running, body)
+	msg := fmt.Sprintf("total=%d running=%d\n%s", total, running, formatDaemonList(daemons))
 	return binparser.CodeOK, msg
 }
 
 // handleBinStatus handles the binary status command.
 func handleBinStatus(s *Server, cmd *binparser.BinCommand) (byte, string) {
-	name, ok := binAttrString(cmd, "name")
+	name, ok := binAttrName(cmd)
 	if !ok || name == "" {
 		return binparser.CodeError, "status requires a daemon name"
 	}
@@ -446,7 +450,7 @@ func handleBinStatus(s *Server, cmd *binparser.BinCommand) (byte, string) {
 
 // handleBinRestart handles the binary restart command.
 func handleBinRestart(s *Server, cmd *binparser.BinCommand) (byte, string) {
-	name, ok := binAttrString(cmd, "name")
+	name, ok := binAttrName(cmd)
 	if !ok || name == "" {
 		return binparser.CodeError, "restart requires a daemon name"
 	}
@@ -470,7 +474,7 @@ func handleBinRestart(s *Server, cmd *binparser.BinCommand) (byte, string) {
 
 // handleBinStop handles the binary stop command.
 func handleBinStop(s *Server, cmd *binparser.BinCommand) (byte, string) {
-	name, ok := binAttrString(cmd, "name")
+	name, ok := binAttrName(cmd)
 	if !ok || name == "" {
 		return binparser.CodeError, "stop requires a daemon name"
 	}
@@ -490,7 +494,7 @@ func handleBinStop(s *Server, cmd *binparser.BinCommand) (byte, string) {
 
 // handleBinStart handles the binary start command.
 func handleBinStart(s *Server, cmd *binparser.BinCommand) (byte, string) {
-	name, ok := binAttrString(cmd, "name")
+	name, ok := binAttrName(cmd)
 	if !ok || name == "" {
 		return binparser.CodeError, "start requires a daemon name"
 	}
@@ -513,7 +517,7 @@ func handleBinStart(s *Server, cmd *binparser.BinCommand) (byte, string) {
 }
 
 // handleBinListFeatures handles the binary list-features command.
-func handleBinListFeatures(s *Server, cmd *binparser.BinCommand) (byte, string) {
+func handleBinListFeatures(s *Server, _ *binparser.BinCommand) (byte, string) {
 	if s.features == nil {
 		return binparser.CodeError, "feature registry not initialized"
 	}
@@ -526,7 +530,7 @@ func handleBinListFeatures(s *Server, cmd *binparser.BinCommand) (byte, string) 
 	}
 	var lines []string
 	for _, f := range features {
-		state := "failed"
+		state := stateFailed
 		if f.Ready {
 			state = "ready"
 		}
@@ -538,7 +542,7 @@ func handleBinListFeatures(s *Server, cmd *binparser.BinCommand) (byte, string) 
 
 // handleBinLogs handles the binary logs command.
 func handleBinLogs(s *Server, cmd *binparser.BinCommand) (byte, string) {
-	name, ok := binAttrString(cmd, "name")
+	name, ok := binAttrName(cmd)
 	if !ok || name == "" {
 		return binparser.CodeError, "logs requires a daemon name"
 	}
@@ -558,15 +562,15 @@ func handleBinLogs(s *Server, cmd *binparser.BinCommand) (byte, string) {
 }
 
 // handleBinShutdown handles the binary shutdown command.
-func handleBinShutdown(s *Server, cmd *binparser.BinCommand) (byte, string) {
+func handleBinShutdown(s *Server, _ *binparser.BinCommand) (byte, string) {
 	s.cancel()
 	return binparser.CodeOK, "shutting down all daemons"
 }
 
 // handleBinListPrograms handles the binary list-programs command.
-func handleBinListPrograms(s *Server, cmd *binparser.BinCommand) (byte, string) {
+func handleBinListPrograms(s *Server, _ *binparser.BinCommand) (byte, string) {
 	if s.pm == nil {
-		return binparser.CodeError, "program manager not initialized"
+		return binparser.CodeError, errProgManagerNotInit
 	}
 	progs := s.pm.List()
 	total := len(progs)
@@ -596,9 +600,9 @@ func handleBinListPrograms(s *Server, cmd *binparser.BinCommand) (byte, string) 
 // handleBinProgramStatus handles the binary program-status command.
 func handleBinProgramStatus(s *Server, cmd *binparser.BinCommand) (byte, string) {
 	if s.pm == nil {
-		return binparser.CodeError, "program manager not initialized"
+		return binparser.CodeError, errProgManagerNotInit
 	}
-	name, ok := binAttrString(cmd, "name")
+	name, ok := binAttrName(cmd)
 	if !ok || name == "" {
 		return binparser.CodeError, "prog-status requires a program name"
 	}
@@ -618,9 +622,9 @@ func handleBinProgramStatus(s *Server, cmd *binparser.BinCommand) (byte, string)
 // handleBinStartProgram handles the binary start-program command.
 func handleBinStartProgram(s *Server, cmd *binparser.BinCommand) (byte, string) {
 	if s.pm == nil {
-		return binparser.CodeError, "program manager not initialized"
+		return binparser.CodeError, errProgManagerNotInit
 	}
-	name, ok := binAttrString(cmd, "name")
+	name, ok := binAttrName(cmd)
 	if !ok || name == "" {
 		return binparser.CodeError, "prog-start requires a program name"
 	}
@@ -638,9 +642,9 @@ func handleBinStartProgram(s *Server, cmd *binparser.BinCommand) (byte, string) 
 // handleBinStopProgram handles the binary stop-program command.
 func handleBinStopProgram(s *Server, cmd *binparser.BinCommand) (byte, string) {
 	if s.pm == nil {
-		return binparser.CodeError, "program manager not initialized"
+		return binparser.CodeError, errProgManagerNotInit
 	}
-	name, ok := binAttrString(cmd, "name")
+	name, ok := binAttrName(cmd)
 	if !ok || name == "" {
 		return binparser.CodeError, "prog-stop requires a program name"
 	}

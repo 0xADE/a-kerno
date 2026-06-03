@@ -1,6 +1,3 @@
-// Package daemon provides the LogBuffer — a ring buffer for storing
-// the most recent log lines of a daemon process, used by the "logs"
-// management command.
 package daemon
 
 import (

@@ -26,9 +26,9 @@ func main() {
 
 // run encapsulates the main logic and returns an exit code.
 func run() int {
-	// 1. Initialise configuration (reads environment variables, expands paths).
+	// 1. Initialize configuration (reads environment variables, expands paths).
 	if err := config.Init(); err != nil {
-		slog.Error("failed to initialise configuration", "error", err)
+		slog.Error("failed to initialize configuration", "error", err)
 		return 1
 	}
 	cfg := config.Get()

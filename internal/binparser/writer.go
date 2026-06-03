@@ -75,7 +75,7 @@ func (w *Writer) Flush() error {
 func (w *Writer) writeFrame(frameType byte, payload []byte) error {
 	header := make([]byte, 5)
 	header[0] = frameType
-	binary.LittleEndian.PutUint32(header[1:5], uint32(len(payload)))
+	binary.LittleEndian.PutUint32(header[1:5], uint32(len(payload))) //nolint:gosec // length bounded by frame protocol
 
 	if _, err := w.writer.Write(header); err != nil {
 		return err
@@ -98,7 +98,7 @@ func encodeAttr(key string, val interface{}) []byte {
 	buf := make([]byte, 0, 2+len(keyBytes)+len(valBytes))
 
 	// Key length (2 bytes, big-endian).
-	keyLen := uint16(len(keyBytes))
+	keyLen := uint16(len(keyBytes)) //nolint:gosec // key length bounded
 	buf = append(buf, byte(keyLen>>8), byte(keyLen&0xFF))
 
 	// Key.
@@ -135,7 +135,7 @@ func encodeValue(val interface{}) []byte {
 func encodeSTR(s string) []byte {
 	b := make([]byte, 1+4+len(s))
 	b[0] = ValSTR
-	binary.LittleEndian.PutUint32(b[1:5], uint32(len(s)))
+	binary.LittleEndian.PutUint32(b[1:5], uint32(len(s))) //nolint:gosec // string length bounded
 	copy(b[5:], s)
 	return b
 }
@@ -144,7 +144,7 @@ func encodeSTR(s string) []byte {
 func encodeINT(v int64) []byte {
 	b := make([]byte, 1+8)
 	b[0] = ValINT
-	binary.LittleEndian.PutUint64(b[1:9], uint64(v))
+	binary.LittleEndian.PutUint64(b[1:9], uint64(v)) //nolint:gosec // BIN01 protocol uses uint64 for int64
 	return b
 }
 
@@ -162,7 +162,7 @@ func encodeBOOL(v bool) []byte {
 func encodeBLOB(v []byte) []byte {
 	b := make([]byte, 1+4+len(v))
 	b[0] = ValBLOB
-	binary.LittleEndian.PutUint32(b[1:5], uint32(len(v)))
+	binary.LittleEndian.PutUint32(b[1:5], uint32(len(v))) //nolint:gosec // blob length bounded
 	copy(b[5:], v)
 	return b
 }

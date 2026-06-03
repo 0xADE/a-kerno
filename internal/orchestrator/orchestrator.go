@@ -33,6 +33,7 @@ func NewOrchestrator(
 	features *feature.Registry,
 	srv *server.Server,
 ) *Orchestrator {
+
 	return &Orchestrator{
 		cfg:      cfg,
 		dm:       dm,

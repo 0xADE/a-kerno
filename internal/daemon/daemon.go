@@ -1,6 +1,3 @@
-// Package daemon provides daemon lifecycle management for a-kerno.
-// It defines the Daemon type representing a single managed daemon process,
-// its state machine, and thread-safe accessors.
 package daemon
 
 import (

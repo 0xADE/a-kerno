@@ -38,7 +38,7 @@ type DaemonManager struct {
 }
 
 // NewDaemonManager creates a new DaemonManager with the given configuration
-// and parsed daemon configs slice. It initialises the daemon map but does not
+// and parsed daemon configs slice. It initializes the daemon map but does not
 // start any processes.
 func NewDaemonManager(cfg *config.Config, configs []DaemonConfig, uid, home string) *DaemonManager {
 	logger := slog.Default().With("component", "daemon-manager")
@@ -201,6 +201,7 @@ func (m *DaemonManager) Start(ctx context.Context, name string) error {
 	d.mu.Unlock()
 
 	// Build the command.
+	//nolint:gosec // Exec comes from trusted daemons.md config
 	cmd := exec.CommandContext(ctx, cfg.Exec)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
@@ -372,7 +373,7 @@ func (m *DaemonManager) waitForSocket(socketPath string, timeout time.Duration) 
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("unix", socketPath, 100*time.Millisecond)
+		conn, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(context.Background(), "unix", socketPath)
 		if err == nil {
 			conn.Close()
 			return nil

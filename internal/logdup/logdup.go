@@ -23,7 +23,7 @@ import (
 // logger with a "[name] " prefix. The returned *LogWriters provide the
 // write ends of the pipes; attach them to cmd.StdoutPipe / cmd.StderrPipe
 // AFTER calling Duplicate (use the writers directly as cmd.Stdout / cmd.Stderr
-// to avoid the default pipe behaviour).
+// to avoid the default pipe behavior).
 //
 // Usage:
 //

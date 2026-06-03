@@ -67,6 +67,7 @@ func RunHealthCheck(ctx context.Context, prog *Program) error {
 // executeHealthCheck runs a health check command (shell invocation)
 // and returns nil on success (exit code 0).
 func executeHealthCheck(ctx context.Context, command string) error {
+	//nolint:gosec // command originates from trusted config
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,

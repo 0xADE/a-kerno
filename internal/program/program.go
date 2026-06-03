@@ -1,7 +1,3 @@
-// Package program provides user program lifecycle management for a-kerno.
-// It defines the Program type representing a single managed user program,
-// its state machine (11 states from the specification), health status,
-// and thread-safe accessors.
 package program
 
 import (

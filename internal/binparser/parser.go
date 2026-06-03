@@ -195,7 +195,7 @@ func parseValue(valType byte, data []byte) (interface{}, error) {
 		if len(data) < 8 {
 			return nil, fmt.Errorf("INT value too short: %d bytes", len(data))
 		}
-		return int64(binary.LittleEndian.Uint64(data[:8])), nil
+		return int64(binary.LittleEndian.Uint64(data[:8])), nil //nolint:gosec // BIN01 protocol uses uint64 for int64
 
 	case ValBOOL:
 		if len(data) < 1 {
@@ -218,31 +218,4 @@ func parseValue(valType byte, data []byte) (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("unknown value type: 0x%02x", valType)
 	}
-}
-
-// readUint32LE reads a 4-byte little-endian uint32 from the reader.
-func readUint32LE(r io.Reader) (uint32, error) {
-	var buf [4]byte
-	if _, err := io.ReadFull(r, buf[:]); err != nil {
-		return 0, err
-	}
-	return binary.LittleEndian.Uint32(buf[:]), nil
-}
-
-// readUint16BE reads a 2-byte big-endian uint16 from the reader.
-func readUint16BE(r io.Reader) (uint16, error) {
-	var buf [2]byte
-	if _, err := io.ReadFull(r, buf[:]); err != nil {
-		return 0, err
-	}
-	return uint16(buf[0])<<8 | uint16(buf[1]), nil
-}
-
-// readInt64LE reads an 8-byte little-endian int64 from the reader.
-func readInt64LE(r io.Reader) (int64, error) {
-	var buf [8]byte
-	if _, err := io.ReadFull(r, buf[:]); err != nil {
-		return 0, err
-	}
-	return int64(binary.LittleEndian.Uint64(buf[:])), nil
 }

@@ -96,7 +96,7 @@ func (m *ProgramManager) ResolveDependencies() ([][]string, error) {
 			}
 
 			// Cross-phase check: early cannot depend on post.
-			if cfg.Phase == "early" && depCfg.Phase == "post" {
+			if cfg.Phase == phaseEarly && depCfg.Phase == phasePost {
 				return nil, fmt.Errorf("early program %q depends on post program %q", name, dep)
 			}
 
@@ -134,10 +134,10 @@ func (m *ProgramManager) ResolveDependencies() ([][]string, error) {
 		sort.Slice(ready, func(i, j int) bool {
 			ai, aj := enabled[ready[i]], enabled[ready[j]]
 			if ai.Phase != aj.Phase {
-				if ai.Phase == "early" {
+				if ai.Phase == phaseEarly {
 					return true
 				}
-				if aj.Phase == "early" {
+				if aj.Phase == phaseEarly {
 					return false
 				}
 			}
@@ -277,6 +277,7 @@ func (m *ProgramManager) StartProgram(ctx context.Context, name string) error {
 	prog.SetState(ProgStarting)
 
 	// Build the command.
+	//nolint:gosec // Exec comes from trusted config
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", cfg.Exec)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
@@ -471,7 +472,7 @@ func (m *ProgramManager) waitForHealthy(ctx context.Context, prog *Program, time
 
 // monitorProgram is a goroutine that waits for a program process to exit
 // and updates the program state accordingly.
-func (m *ProgramManager) monitorProgram(ctx context.Context, name string) {
+func (m *ProgramManager) monitorProgram(_ context.Context, name string) {
 	prog := m.Get(name)
 	if prog == nil {
 		return

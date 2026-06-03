@@ -1,7 +1,3 @@
-// Package program provides user program configuration loading and management
-// for a-kerno. It handles .md (ADE autostart) and .desktop (XDG autostart)
-// configuration files, populating ProgramConfig structures with variable
-// expansion and priority resolution.
 package program
 
 import (
@@ -12,6 +8,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+)
+
+const (
+	phaseEarly = "early"
+	phasePost  = "post"
 )
 
 // ProgramConfig represents the parsed configuration of a single user program.
@@ -33,7 +34,7 @@ type ProgramConfig struct {
 
 // Default values for program config fields.
 const (
-	DefaultPhase         = "post"
+	DefaultPhase         = phasePost
 	DefaultHealthTimeout = 30
 	DefaultHealthRetry   = 3
 	DefaultStartDelay    = 0
@@ -68,10 +69,10 @@ func LoadProgramConfigs(autostartDir, xdgAutostartDir, uid, home string) ([]Prog
 		ai, aj := allConfigs[i], allConfigs[j]
 		if ai.Phase != aj.Phase {
 			// "early" comes before "post"
-			if ai.Phase == "early" {
+			if ai.Phase == phaseEarly {
 				return true
 			}
-			if aj.Phase == "early" {
+			if aj.Phase == phaseEarly {
 				return false
 			}
 		}
@@ -143,6 +144,7 @@ func parseMarkdownProgram(path, name, uid, home string) (ProgramConfig, error) {
 		Env:           make(map[string]string),
 	}
 
+	//nolint:gosec // path originates from trusted config directory
 	file, err := os.Open(path)
 	if err != nil {
 		return cfg, err
@@ -181,7 +183,7 @@ func parseMarkdownProgram(path, name, uid, home string) (ProgramConfig, error) {
 			cfg.Exec = value
 		case "phase":
 			phase := strings.ToLower(value)
-			if phase != "early" && phase != "post" {
+			if phase != phaseEarly && phase != phasePost {
 				phase = DefaultPhase
 			}
 			cfg.Phase = phase
@@ -251,6 +253,7 @@ func parseDesktopProgram(path, name, uid, home string) (ProgramConfig, error) {
 		Env:           make(map[string]string),
 	}
 
+	//nolint:gosec // path originates from trusted config directory
 	file, err := os.Open(path)
 	if err != nil {
 		return cfg, err
@@ -352,7 +355,7 @@ func stripDesktopExecPlaceholders(exec string) string {
 			skipNext = false
 			// If the next char is not a letter, keep the %.
 			if i > 0 && exec[i-1] == '%' {
-				if !isAlpha(byte(r)) && r != '%' {
+				if r != '%' && !isAlphaRune(r) {
 					result.WriteByte('%')
 					result.WriteRune(r)
 				}
@@ -379,6 +382,10 @@ func stripDesktopExecPlaceholders(exec string) string {
 
 func isAlpha(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func isAlphaRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
 
 // containsADE checks whether a semicolon-delimited list contains "ADE".

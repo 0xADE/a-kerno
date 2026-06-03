@@ -5,16 +5,20 @@
 package kerno
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/0xADE/a-kerno/internal/binparser"
 	"github.com/0xADE/a-kerno/parser"
 )
+
+const attrName = "name"
 
 // Client is a client for the a-kerno management API.
 // It connects via a Unix domain socket and supports both TXT01 and BIN01
@@ -22,7 +26,6 @@ import (
 type Client struct {
 	socketPath string
 	conn       net.Conn
-	parser     *parser.Parser
 	binParser  *binparser.Parser
 	binWriter  *binparser.Writer
 	useBinary  bool
@@ -82,7 +85,8 @@ type ProgramStatus struct {
 
 // NewClient creates a new TXT01 (text protocol) client connected to the given socket.
 func NewClient(socketPath string) (*Client, error) {
-	conn, err := net.Dial("unix", socketPath)
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	conn, err := d.DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", socketPath, err)
 	}
@@ -103,7 +107,8 @@ func NewClient(socketPath string) (*Client, error) {
 
 // NewBinaryClient creates a new BIN01 (binary protocol) client connected to the given socket.
 func NewBinaryClient(socketPath string) (*Client, error) {
-	conn, err := net.Dial("unix", socketPath)
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	conn, err := d.DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", socketPath, err)
 	}
@@ -183,7 +188,7 @@ func (c *Client) Status(name string) (*DaemonStatus, error) {
 }
 
 func (c *Client) statusText(name string) (*DaemonStatus, error) {
-	cmd, err := c.sendCommand("status", map[string]string{"name": name})
+	cmd, err := c.sendCommand("status", map[string]string{attrName: name})
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +197,7 @@ func (c *Client) statusText(name string) (*DaemonStatus, error) {
 
 func (c *Client) statusBin(name string) (*DaemonStatus, error) {
 	resp, err := c.sendBinCommand(binparser.CmdStatus, map[string]interface{}{
-		"name": name,
+		attrName: name,
 	})
 	if err != nil {
 		return nil, err
@@ -207,11 +212,11 @@ func (c *Client) Restart(name string) error {
 
 	if c.useBinary {
 		_, err := c.sendBinCommand(binparser.CmdRestart, map[string]interface{}{
-			"name": name,
+			attrName: name,
 		})
 		return err
 	}
-	_, err := c.sendCommand("restart", map[string]string{"name": name})
+	_, err := c.sendCommand("restart", map[string]string{attrName: name})
 	return err
 }
 
@@ -222,11 +227,11 @@ func (c *Client) Stop(name string) error {
 
 	if c.useBinary {
 		_, err := c.sendBinCommand(binparser.CmdStop, map[string]interface{}{
-			"name": name,
+			attrName: name,
 		})
 		return err
 	}
-	_, err := c.sendCommand("stop", map[string]string{"name": name})
+	_, err := c.sendCommand("stop", map[string]string{attrName: name})
 	return err
 }
 
@@ -237,11 +242,11 @@ func (c *Client) Start(name string) error {
 
 	if c.useBinary {
 		_, err := c.sendBinCommand(binparser.CmdStart, map[string]interface{}{
-			"name": name,
+			attrName: name,
 		})
 		return err
 	}
-	_, err := c.sendCommand("start", map[string]string{"name": name})
+	_, err := c.sendCommand("start", map[string]string{attrName: name})
 	return err
 }
 
@@ -288,8 +293,8 @@ func (c *Client) logsText(name string, lines int) ([]string, error) {
 		lines = 50
 	}
 	cmd, err := c.sendCommand("logs", map[string]string{
-		"name":  name,
-		"lines": strconv.Itoa(lines),
+		attrName: name,
+		"lines":  strconv.Itoa(lines),
 	})
 	if err != nil {
 		return nil, err
@@ -302,8 +307,8 @@ func (c *Client) logsBin(name string, lines int) ([]string, error) {
 		lines = 50
 	}
 	resp, err := c.sendBinCommand(binparser.CmdLogs, map[string]interface{}{
-		"name":  name,
-		"lines": int64(lines),
+		attrName: name,
+		"lines":  int64(lines),
 	})
 	if err != nil {
 		return nil, err
@@ -363,7 +368,7 @@ func (c *Client) ProgramStatus(name string) (*ProgramStatus, error) {
 }
 
 func (c *Client) programStatusText(name string) (*ProgramStatus, error) {
-	cmd, err := c.sendCommand("prog-status", map[string]string{"name": name})
+	cmd, err := c.sendCommand("prog-status", map[string]string{attrName: name})
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +377,7 @@ func (c *Client) programStatusText(name string) (*ProgramStatus, error) {
 
 func (c *Client) programStatusBin(name string) (*ProgramStatus, error) {
 	resp, err := c.sendBinCommand(binparser.CmdProgramStatus, map[string]interface{}{
-		"name": name,
+		attrName: name,
 	})
 	if err != nil {
 		return nil, err
@@ -387,11 +392,11 @@ func (c *Client) StartProgram(name string) error {
 
 	if c.useBinary {
 		_, err := c.sendBinCommand(binparser.CmdStartProgram, map[string]interface{}{
-			"name": name,
+			attrName: name,
 		})
 		return err
 	}
-	_, err := c.sendCommand("prog-start", map[string]string{"name": name})
+	_, err := c.sendCommand("prog-start", map[string]string{attrName: name})
 	return err
 }
 
@@ -402,11 +407,11 @@ func (c *Client) StopProgram(name string) error {
 
 	if c.useBinary {
 		_, err := c.sendBinCommand(binparser.CmdStopProgram, map[string]interface{}{
-			"name": name,
+			attrName: name,
 		})
 		return err
 	}
-	_, err := c.sendCommand("prog-stop", map[string]string{"name": name})
+	_, err := c.sendCommand("prog-stop", map[string]string{attrName: name})
 	return err
 }
 

@@ -1,6 +1,3 @@
-// Package daemon provides daemon configuration loading and validation.
-// It parses the declarative Markdown configuration file daemons.md
-// and produces a list of DaemonConfig structures.
 package daemon
 
 import (

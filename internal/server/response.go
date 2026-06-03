@@ -23,7 +23,7 @@ func formatDaemonList(daemons []*daemon.Daemon) string {
 
 	var lines []string
 	for _, d := range daemons {
-		state := string(daemonStateToString(d.State))
+		state := daemonStateToString(d.State)
 		pid := fmt.Sprintf("%d", d.PID)
 		if d.PID == 0 {
 			pid = "0"
@@ -99,7 +99,7 @@ func daemonStateToString(s daemon.DaemonState) string {
 	case daemon.DaemonRunning:
 		return "running"
 	case daemon.DaemonFailed:
-		return "failed"
+		return stateFailed
 	case daemon.DaemonDisabled:
 		return "disabled"
 	default:
