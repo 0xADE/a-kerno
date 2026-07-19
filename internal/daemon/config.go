@@ -81,7 +81,7 @@ const defaultTemplate = `# ADE Daemons Configuration
 #   - order: 10                       (startup order, lower = earlier, default: 0)
 #   - restart: on-failure             (always | on-failure | once | disabled)
 #   - ready_timeout: 10               (seconds to wait for socket, default: 10)
-#   - socket: /tmp/ade-${UID}/indexd  (optional Unix socket for readiness)
+#   - socket: ${ADE_RUNTIME_DIR}/indexd  (optional Unix socket for readiness)
 #   - env: KEY=VALUE                  (extra environment variable, repeatable)
 
 ## enabled daemons
@@ -92,8 +92,8 @@ const defaultTemplate = `# ADE Daemons Configuration
 - order: 10
 - restart: on-failure
 - ready_timeout: 10
-- socket: /tmp/ade-${UID}/indexd
-- env: ADE_INDEXD_SOCK=/tmp/ade-${UID}/indexd
+- socket: ${ADE_RUNTIME_DIR}/indexd
+- env: ADE_INDEXD_SOCK=${ADE_RUNTIME_DIR}/indexd
 `
 
 // LoadConfig reads and parses the daemons.md file at the given path.
@@ -239,7 +239,7 @@ func parseDuration(s string) (time.Duration, error) {
 	return 0, fmt.Errorf("cannot parse duration %q", s)
 }
 
-// expandDaemonVar substitutes ${UID}, ${HOME}, ${XDG_RUNTIME_DIR} in the string.
+// expandDaemonVar substitutes ${UID}, ${HOME}, ${XDG_RUNTIME_DIR}, ${ADE_RUNTIME_DIR} in the string.
 func expandDaemonVar(s, uid, home string) string {
 	s = strings.ReplaceAll(s, "${UID}", uid)
 	s = strings.ReplaceAll(s, "${HOME}", home)
@@ -250,7 +250,16 @@ func expandDaemonVar(s, uid, home string) string {
 	}
 	s = strings.ReplaceAll(s, "${XDG_RUNTIME_DIR}", xdgRuntime)
 
+	s = strings.ReplaceAll(s, "${ADE_RUNTIME_DIR}", adeRuntimeDir(uid))
+
 	return s
+}
+
+func adeRuntimeDir(uid string) string {
+	if v := os.Getenv("ADE_RUNTIME_DIR"); v != "" {
+		return v
+	}
+	return fmt.Sprintf("/tmp/ade-%s", uid)
 }
 
 // SaveConfig writes the daemon configuration back to a file.

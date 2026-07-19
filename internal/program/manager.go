@@ -172,7 +172,7 @@ func (m *ProgramManager) StartPhase(ctx context.Context, phase string) error {
 	m.mu.RLock()
 	phasePrograms := make(map[string]bool)
 	for name, cfg := range m.programs {
-		if cfg.Config.Phase == phase || (phase == "post" && cfg.Config.Phase == "") {
+		if cfg.Config.Phase == phase || (phase == phasePost && cfg.Config.Phase == "") {
 			if cfg.Config.Enabled {
 				phasePrograms[name] = true
 			}
@@ -400,34 +400,35 @@ func (m *ProgramManager) StopProgram(ctx context.Context, name string) error {
 // StopAll stops all running programs. Post-phase programs are stopped first,
 // then early-phase programs.
 func (m *ProgramManager) StopAll(ctx context.Context) error {
+	if err := m.StopPhase(ctx, phasePost); err != nil {
+		return err
+	}
+	return m.StopPhase(ctx, phaseEarly)
+}
+
+// StopPhase stops all running programs in the given phase ("early" or "post").
+func (m *ProgramManager) StopPhase(ctx context.Context, phase string) error {
 	m.mu.RLock()
-	var postPrograms, earlyPrograms []string
+	var names []string
 	for name, prog := range m.programs {
 		if !prog.IsRunning() {
 			continue
 		}
-		if prog.Config.Phase == "early" {
-			earlyPrograms = append(earlyPrograms, name)
-		} else {
-			postPrograms = append(postPrograms, name)
+		p := prog.Config.Phase
+		if p == "" {
+			p = phasePost
+		}
+		if p == phase {
+			names = append(names, name)
 		}
 	}
 	m.mu.RUnlock()
 
-	// Stop post programs first.
-	for _, name := range postPrograms {
+	for _, name := range names {
 		if err := m.StopProgram(ctx, name); err != nil {
-			m.logger.Error("failed to stop post program", "program", name, "error", err)
+			m.logger.Error("failed to stop program", "program", name, "phase", phase, "error", err)
 		}
 	}
-
-	// Then stop early programs.
-	for _, name := range earlyPrograms {
-		if err := m.StopProgram(ctx, name); err != nil {
-			m.logger.Error("failed to stop early program", "program", name, "error", err)
-		}
-	}
-
 	return nil
 }
 

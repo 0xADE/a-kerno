@@ -288,7 +288,7 @@ func parseDesktopProgram(path, name, uid, home string) (ProgramConfig, error) {
 			}
 		case "x-ade-phase":
 			phase := strings.ToLower(value)
-			if phase == "early" || phase == "post" {
+			if phase == phaseEarly || phase == phasePost {
 				cfg.Phase = phase
 			}
 		case "x-ade-priority":
@@ -388,7 +388,7 @@ func parseCommaList(s string) []string {
 	return result
 }
 
-// expandVar substitutes ${UID}, ${HOME}, ${XDG_RUNTIME_DIR} in the string.
+// expandVar substitutes ${UID}, ${HOME}, ${XDG_RUNTIME_DIR}, ${ADE_RUNTIME_DIR} in the string.
 func expandVar(s, uid, home string) string {
 	s = strings.ReplaceAll(s, "${UID}", uid)
 	s = strings.ReplaceAll(s, "${HOME}", home)
@@ -399,5 +399,14 @@ func expandVar(s, uid, home string) string {
 	}
 	s = strings.ReplaceAll(s, "${XDG_RUNTIME_DIR}", xdgRuntime)
 
+	s = strings.ReplaceAll(s, "${ADE_RUNTIME_DIR}", adeRuntimeDir(uid))
+
 	return s
+}
+
+func adeRuntimeDir(uid string) string {
+	if v := os.Getenv("ADE_RUNTIME_DIR"); v != "" {
+		return v
+	}
+	return fmt.Sprintf("/tmp/ade-%s", uid)
 }

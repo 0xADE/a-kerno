@@ -27,7 +27,7 @@ const (
 const (
 	DefaultConfigHome = "~/.config/ade"
 	DefaultRuntimeDir = "/tmp/ade-${UID}"
-	DefaultKernoSock  = "/tmp/ade-${UID}/kerno"
+	DefaultKernoSock  = "${ADE_RUNTIME_DIR}/kerno"
 )
 
 // Config holds all configuration values for a-kerno.
@@ -43,6 +43,9 @@ type Config struct {
 
 	// DaemonsMD is the path to the daemons configuration file.
 	DaemonsMD string
+
+	// KernoMD is the path to the a-kerno core configuration file (a-kerno.md).
+	KernoMD string
 
 	// AutostartDir is the path to the autostart directory.
 	AutostartDir string
@@ -94,6 +97,7 @@ func Init() error {
 
 		// Paths derived from ConfigHome
 		globalConfig.DaemonsMD = filepath.Join(globalConfig.ConfigHome, "daemons.md")
+		globalConfig.KernoMD = filepath.Join(globalConfig.ConfigHome, "a-kerno.md")
 		globalConfig.AutostartDir = filepath.Join(globalConfig.ConfigHome, "autostart")
 
 		// Collect daemon socket paths from environment
@@ -129,7 +133,7 @@ func resolveUser() (uid, home string, err error) {
 	return uid, home, nil
 }
 
-// expandVar substitutes ${UID}, ${HOME}, ${XDG_RUNTIME_DIR} and ~ in the path.
+// expandVar substitutes ${UID}, ${HOME}, ${XDG_RUNTIME_DIR}, ${ADE_RUNTIME_DIR} and ~ in the path.
 func expandVar(path, uid, home string) string {
 	// Expand ~ prefix
 	if strings.HasPrefix(path, "~") {
@@ -147,7 +151,17 @@ func expandVar(path, uid, home string) string {
 	}
 	path = strings.ReplaceAll(path, "${XDG_RUNTIME_DIR}", xdgRuntime)
 
+	path = strings.ReplaceAll(path, "${ADE_RUNTIME_DIR}", adeRuntimeDir(uid))
+
 	return path
+}
+
+// adeRuntimeDir returns ADE_RUNTIME_DIR from the environment or the default path.
+func adeRuntimeDir(uid string) string {
+	if v := os.Getenv(EnvRuntimeDir); v != "" {
+		return v
+	}
+	return fmt.Sprintf("/tmp/ade-%s", uid)
 }
 
 // collectSockets reads daemon socket paths from environment variables and

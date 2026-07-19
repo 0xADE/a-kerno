@@ -18,6 +18,7 @@ import (
 	"github.com/0xADE/a-kerno/internal/orchestrator"
 	"github.com/0xADE/a-kerno/internal/program"
 	"github.com/0xADE/a-kerno/internal/server"
+	"github.com/0xADE/a-kerno/internal/sessionwm"
 )
 
 func main() {
@@ -38,6 +39,7 @@ func run() int {
 		"runtime_dir", cfg.RuntimeDir,
 		"kerno_sock", cfg.KernoSock,
 		"daemons_md", cfg.DaemonsMD,
+		"kerno_md", cfg.KernoMD,
 		"autostart_dir", cfg.AutostartDir,
 	)
 
@@ -102,43 +104,51 @@ func run() int {
 	// 7. Create the program manager.
 	pm := program.NewProgramManager(programConfigs)
 
-	// 8. Create the management Unix socket server.
+	// 8. Create the session WM manager (a-kerno.md ## composer, env overrides).
+	wmCfg := sessionwm.LoadConfig(cfg.KernoMD, uid, home)
+	wm := sessionwm.NewManager(wmCfg)
+	if wm.Enabled() {
+		slog.Info("session WM configured", "spec", wmCfg.Spec, "restart", wmCfg.Restart)
+	}
+
+	// 9. Create the management Unix socket server.
 	srv := server.NewServer(cfg, dm, feats, pm)
 
-	// 9. Create the orchestrator.
-	orch := orchestrator.NewOrchestrator(cfg, dm, pm, feats, srv)
+	// 10. Create the orchestrator.
+	orch := orchestrator.NewOrchestrator(cfg, dm, pm, wm, feats, srv)
 
-	// 10. Set up signal handling: SIGINT, SIGTERM for graceful shutdown.
+	// 11. Set up signal handling: SIGINT, SIGTERM for graceful shutdown.
 	ctx, cancel := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGINT, syscall.SIGTERM,
 	)
 	defer cancel()
 
-	// 11. Start the management server BEFORE daemons so the socket is
+	// 12. Start the management server BEFORE daemons so the socket is
 	//     available for daemons that need to connect to a-kerno during init.
 	if err := srv.Start(ctx); err != nil {
 		slog.Error("failed to start management server", "error", err)
 		return 1
 	}
 
-	// 12. Run the orchestrator: early programs → daemons → post programs.
+	// 13. Run the orchestrator: early → daemons → session WM → post.
 	if err := orch.Run(ctx); err != nil {
 		slog.Error("orchestrator failed to start", "error", err)
+		_ = wm.Stop(context.Background())
 		_ = dm.StopAll(context.Background())
 		return 1
 	}
 
-	// 13. Start fsnotify watcher for daemons.md auto-reload.
+	// 14. Start fsnotify watcher for daemons.md auto-reload.
 	if err := dm.WatchConfig(ctx); err != nil {
 		slog.Warn("failed to start config watcher (continuing without)", "error", err)
 	}
 
-	slog.Info("all daemons and programs started, waiting for shutdown signal",
+	slog.Info("all daemons, session WM and programs started, waiting for shutdown signal",
 		"features", feats.ExportEnv(),
 	)
 
-	// 14. Wait for termination: either OS signal or shutdown via management socket.
+	// 15. Wait for termination: either OS signal or shutdown via management socket.
 	select {
 	case <-ctx.Done():
 		slog.Info("received OS shutdown signal")
@@ -148,10 +158,10 @@ func run() int {
 
 	slog.Info("stopping a-kerno gracefully")
 
-	// 15. Stop the management server (stop accepting new connections).
+	// 16. Stop the management server (stop accepting new connections).
 	srv.Stop()
 
-	// 16. Orchestrator shutdown: post programs → daemons → early programs.
+	// 17. Orchestrator shutdown: post → session WM → daemons → early.
 	if err := orch.Shutdown(context.Background()); err != nil {
 		slog.Error("errors during shutdown", "error", err)
 		return 1
