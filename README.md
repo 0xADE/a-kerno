@@ -4,7 +4,7 @@
 
 ## Назначение
 
-- Запускается демоном входа [`adm`](../adm/) при старте пользовательской сессии
+- Запускается из **`ade-wayland`** или **`ade-xlibre`** ([ade-setup](../ade-setup/)) при ADE-сессии (adm exec'ит `.desktop`; см. [doc/ade-setup.md](../doc/ade-setup.md))
 - Читает декларативный конфиг `~/.config/ade/daemons.md` со списком демонов ADE
 - Запускает демоны как дочерние процессы в указанном порядке
 - Отслеживает состояние демонов и перезапускает согласно политикам (always, on-failure, once, disabled)
@@ -61,11 +61,11 @@
 ## Сборка
 
 ```bash
-make build      # Сборка
+make build      # a-kerno
 make test       # Тесты
 make lint       # Линтер
 make tidy       # go mod tidy
-make install    # Установка (требует SUDO=sudo)
+make install    # a-kerno (session scripts: cd ../ade-setup && make install)
 ```
 
 ## Структура проекта

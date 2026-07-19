@@ -25,9 +25,11 @@ FLAGS := -buildvcs=false -ldflags "-X main.version=$(VERSION) -X main.gitCommit=
 .PHONY: all
 all: build
 
+ACTIVE_CMDS := cmd/a-kerno
+
 .PHONY: build
 build:
-	$(foreach dir,$(wildcard cmd/*), echo "$(dir) building..."; go build $(FLAGS) -o $(BINDIR)/ ./$(dir);)
+	$(foreach dir,$(ACTIVE_CMDS), echo "$(dir) building..."; go build $(FLAGS) -o $(BINDIR)/ ./$(dir);)
 
 .PHONY: test
 test:

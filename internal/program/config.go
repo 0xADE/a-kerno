@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/0xADE/a-kerno/internal/mdparse"
 )
 
 const (
@@ -130,9 +132,7 @@ func scanDir(dir, ext, uid, home, source string, seen map[string]bool) ([]Progra
 	return configs, nil
 }
 
-// parseMarkdownProgram parses an ADE autostart .md file.
-// Format is similar to daemons.md sections: "## <name> properties"
-// with "- key: value" body lines.
+// parseMarkdownProgram parses an ADE autostart .md file with "- key: value" lines.
 func parseMarkdownProgram(path, name, uid, home string) (ProgramConfig, error) {
 	cfg := ProgramConfig{
 		Name:          name,
@@ -144,93 +144,19 @@ func parseMarkdownProgram(path, name, uid, home string) (ProgramConfig, error) {
 		Env:           make(map[string]string),
 	}
 
-	//nolint:gosec // path originates from trusted config directory
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path originates from trusted config directory
 	if err != nil {
 		return cfg, err
 	}
-	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Expect "- key: value"
-		rest, ok := strings.CutPrefix(line, "- ")
-		if !ok {
-			continue
-		}
-
-		key, value, found := strings.Cut(rest, ": ")
-		if !found {
-			key, value, found = strings.Cut(rest, ":")
-			if !found {
-				continue
-			}
-		}
-
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-
-		// Expand variables.
-		value = expandVar(value, uid, home)
-
-		switch key {
-		case "exec":
-			cfg.Exec = value
-		case "phase":
-			phase := strings.ToLower(value)
-			if phase != phaseEarly && phase != phasePost {
-				phase = DefaultPhase
-			}
-			cfg.Phase = phase
-		case "priority":
-			if n, err := strconv.Atoi(value); err == nil {
-				cfg.Priority = n
-			}
-		case "enabled":
-			switch strings.ToLower(value) {
-			case "false", "no", "0":
-				cfg.Enabled = false
-			default:
-				cfg.Enabled = true
-			}
-		case "depends_on":
-			cfg.DependsOn = parseCommaList(value)
-		case "start_delay":
-			if n, err := strconv.Atoi(value); err == nil {
-				cfg.StartDelay = n
-			}
-		case "health_check":
-			cfg.HealthCheck = value
-		case "health_timeout":
-			if n, err := strconv.Atoi(value); err == nil {
-				cfg.HealthTimeout = n
-			}
-		case "health_retry":
-			if n, err := strconv.Atoi(value); err == nil {
-				cfg.HealthRetry = n
-			}
-		case "env":
-			k, v, found := strings.Cut(value, "=")
-			if found {
-				cfg.Env[k] = v
-			}
-		case "restart":
-			switch strings.ToLower(value) {
-			case "true", "yes", "1":
-				cfg.Restart = true
-			default:
-				cfg.Restart = false
-			}
-		}
+	props, _, err := mdparse.ParseRootLists(data)
+	if err != nil {
+		return cfg, err
 	}
 
-	if err := scanner.Err(); err != nil {
-		return cfg, err
+	for key, value := range props {
+		value = expandVar(value, uid, home)
+		applyProgramProperty(&cfg, key, value)
 	}
 
 	if cfg.Exec == "" {
@@ -238,6 +164,58 @@ func parseMarkdownProgram(path, name, uid, home string) (ProgramConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+func applyProgramProperty(cfg *ProgramConfig, key, value string) {
+	switch key {
+	case "exec":
+		cfg.Exec = value
+	case "phase":
+		phase := strings.ToLower(value)
+		if phase != phaseEarly && phase != phasePost {
+			phase = DefaultPhase
+		}
+		cfg.Phase = phase
+	case "priority":
+		if n, err := strconv.Atoi(value); err == nil {
+			cfg.Priority = n
+		}
+	case "enabled":
+		switch strings.ToLower(value) {
+		case "false", "no", "0":
+			cfg.Enabled = false
+		default:
+			cfg.Enabled = true
+		}
+	case "depends_on":
+		cfg.DependsOn = parseCommaList(value)
+	case "start_delay":
+		if n, err := strconv.Atoi(value); err == nil {
+			cfg.StartDelay = n
+		}
+	case "health_check":
+		cfg.HealthCheck = value
+	case "health_timeout":
+		if n, err := strconv.Atoi(value); err == nil {
+			cfg.HealthTimeout = n
+		}
+	case "health_retry":
+		if n, err := strconv.Atoi(value); err == nil {
+			cfg.HealthRetry = n
+		}
+	case "env":
+		k, v, found := strings.Cut(value, "=")
+		if found {
+			cfg.Env[k] = v
+		}
+	case "restart":
+		switch strings.ToLower(value) {
+		case "true", "yes", "1":
+			cfg.Restart = true
+		default:
+			cfg.Restart = false
+		}
+	}
 }
 
 // parseDesktopProgram parses an XDG .desktop file.

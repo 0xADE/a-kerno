@@ -51,10 +51,14 @@ func run() int {
 	home := currentUser.HomeDir
 
 	// 3. Load daemon configurations from daemons.md.
+	//    If the file does not exist, a template is created automatically and
+	//    a-kerno starts with an empty daemon list (warning, not fatal).
 	daemonConfigs, err := daemon.LoadConfig(cfg.DaemonsMD, uid, home)
 	if err != nil {
-		slog.Error("failed to load daemon configuration", "path", cfg.DaemonsMD, "error", err)
-		return 1
+		slog.Warn("failed to load daemon configuration, starting with empty daemon list",
+			"path", cfg.DaemonsMD, "error", err,
+		)
+		daemonConfigs = nil
 	}
 
 	slog.Info("loaded daemon configurations", "count", len(daemonConfigs))

@@ -9,10 +9,13 @@ tool (
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/konkero-project/mdconfig v0.0.2
 	github.com/onsi/ginkgo/v2 v2.29.0
-	github.com/onsi/gomega v1.40.0
+	github.com/onsi/gomega v1.41.0
 	golang.org/x/sync v0.20.0
 )
+
+replace github.com/konkero-project/mdconfig => ../../konkero-project/mdconfig
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect
@@ -106,6 +109,7 @@ require (
 	github.com/golangci/rowserrcheck v0.0.0-20260419091836-c5f79b8a11ba // indirect
 	github.com/golangci/swaggoswag v0.0.0-20250504205917-77f2aca3143e // indirect
 	github.com/golangci/unconvert v0.0.0-20250410112200-a129a6e6413e // indirect
+	github.com/gomarkdown/markdown v0.0.0-20220627144906-e9a81102ebeb // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/gordonklaus/ineffassign v0.2.0 // indirect

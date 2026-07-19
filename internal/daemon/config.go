@@ -1,14 +1,16 @@
 package daemon
 
 import (
-	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/0xADE/a-kerno/internal/mdparse"
 )
 
 // RestartPolicy defines the daemon restart behavior.
@@ -64,41 +66,79 @@ const (
 	DefaultReadyTimeout = 10 * time.Second
 )
 
+// defaultTemplate is the content written to a new daemons.md when the file
+// does not exist. It includes commented examples so the user can edit it.
+const defaultTemplate = `# ADE Daemons Configuration
+#
+# Managed by a-kerno. Changes are picked up automatically via fsnotify.
+#
+# Format:
+#   ## enabled daemons      – task list of daemons to launch at startup
+#   ## <name> properties    – per-daemon configuration section
+#
+# Keys inside a "properties" section:
+#   - exec: /path/to/binary           (required)
+#   - order: 10                       (startup order, lower = earlier, default: 0)
+#   - restart: on-failure             (always | on-failure | once | disabled)
+#   - ready_timeout: 10               (seconds to wait for socket, default: 10)
+#   - socket: /tmp/ade-${UID}/indexd  (optional Unix socket for readiness)
+#   - env: KEY=VALUE                  (extra environment variable, repeatable)
+
+## enabled daemons
+- [x] a-lancxo
+
+## a-lancxo properties
+- exec: /usr/local/bin/a-lancxo
+- order: 10
+- restart: on-failure
+- ready_timeout: 10
+- socket: /tmp/ade-${UID}/indexd
+- env: ADE_INDEXD_SOCK=/tmp/ade-${UID}/indexd
+`
+
 // LoadConfig reads and parses the daemons.md file at the given path.
 // It returns a slice of DaemonConfig sorted by Order.
+//
+// If the file does not exist, a template daemons.md is created and an empty
+// configuration slice is returned with no error.  The caller receives a
+// warning via structured logging.
 func LoadConfig(path string, uid, home string) ([]DaemonConfig, error) {
 	//nolint:gosec // path originates from trusted config directory
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", path, err)
+		if os.IsNotExist(err) {
+			if createErr := createTemplateConfig(path); createErr != nil {
+				return nil, fmt.Errorf("create template %s: %w", path, createErr)
+			}
+			slog.Warn("daemon config not found, created template for editing", "path", path)
+			return []DaemonConfig{}, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
-	defer file.Close()
 
-	// Parse the Markdown file into sections.
-	sections, err := parseSections(file)
+	sections, err := mdparse.Parse(data)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	// Extract enabled set from the "enabled daemons" task list.
-	enabled := parseEnabledList(sections["enabled daemons"])
+	enabledSec := sections["enabled daemons"]
+	var enabled map[string]bool
+	if enabledSec != nil {
+		enabled = enabledSec.Enabled
+	}
 
-	// Parse each "## <name> properties" section into a DaemonConfig.
 	var configs []DaemonConfig
-	for heading, lines := range sections {
+	for heading, sec := range sections {
 		name, ok := strings.CutSuffix(heading, " properties")
-		if !ok || name == "" {
+		if !ok || name == "" || sec == nil {
 			continue
 		}
 
-		cfg, err := parseDaemonSection(name, lines, uid, home)
+		cfg, err := daemonConfigFromProperties(name, sec.Properties, uid, home)
 		if err != nil {
 			return nil, fmt.Errorf("section %q: %w", heading, err)
 		}
 
-		// Apply enabled status from task list.
-		// If the daemon is not listed in "enabled daemons", it is
-		// considered disabled by default.
 		if en, exists := enabled[name]; exists {
 			cfg.Enabled = en
 		}
@@ -107,7 +147,8 @@ func LoadConfig(path string, uid, home string) ([]DaemonConfig, error) {
 	}
 
 	if len(configs) == 0 {
-		return nil, fmt.Errorf("no daemon properties sections found in %s", path)
+		slog.Warn("no daemon properties sections found in config, running with empty daemon list", "path", path)
+		return []DaemonConfig{}, nil
 	}
 
 	// Sort by Order ascending.
@@ -118,88 +159,21 @@ func LoadConfig(path string, uid, home string) ([]DaemonConfig, error) {
 	return configs, nil
 }
 
-// parseSections reads a Markdown file and returns a map from
-// H2 heading text (e.g. "a-lancxo properties") to the list of
-// non-empty, non-comment body lines belonging to that section.
-func parseSections(file *os.File) (map[string][]string, error) {
-	sections := make(map[string][]string)
-	var currentHeading string
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		// Skip empty lines and comments.
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		// H2 heading: "## heading text"
-		if strings.HasPrefix(trimmed, "## ") {
-			currentHeading = strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
-			if _, exists := sections[currentHeading]; !exists {
-				sections[currentHeading] = []string{}
-			}
-			continue
-		}
-
-		// H1 heading resets current section.
-		if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") {
-			currentHeading = ""
-			continue
-		}
-
-		// Accumulate body lines under the current H2 section.
-		if currentHeading != "" {
-			sections[currentHeading] = append(sections[currentHeading], trimmed)
-		}
+// createTemplateConfig writes the default daemons.md template to path.
+// It also creates parent directories if needed.
+func createTemplateConfig(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // config dir is user-owned
+		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
+	if err := os.WriteFile(path, []byte(defaultTemplate), 0o644); err != nil { //nolint:gosec // user config template
+		return fmt.Errorf("write %s: %w", path, err)
 	}
-
-	return sections, nil
+	return nil
 }
 
-// parseEnabledList extracts the set of enabled daemon names from the
-// "## enabled daemons" task list section.
-func parseEnabledList(lines []string) map[string]bool {
-	enabled := make(map[string]bool)
-	for _, line := range lines {
-		// Match "- [x] name" and "- [ ] name".
-		name, en, ok := parseTaskItem(line)
-		if ok {
-			enabled[name] = en
-		}
-	}
-	return enabled
-}
-
-// parseTaskItem parses a single Markdown task list item.
-// Returns the item text, checked status, and whether the line was a task item.
-func parseTaskItem(line string) (name string, checked bool, ok bool) {
-	// Strip leading "- ".
-	rest, hasDash := strings.CutPrefix(line, "- ")
-	if !hasDash {
-		return "", false, false
-	}
-
-	// Expect "[x] " or "[ ] ".
-	if after, found := strings.CutPrefix(rest, "[x] "); found {
-		return strings.TrimSpace(after), true, true
-	}
-	if after, found := strings.CutPrefix(rest, "[ ] "); found {
-		return strings.TrimSpace(after), false, true
-	}
-
-	return "", false, false
-}
-
-// parseDaemonSection parses the body lines of a "## <name> properties"
-// section into a DaemonConfig.
-func parseDaemonSection(name string, lines []string, uid, home string) (DaemonConfig, error) {
+// daemonConfigFromProperties builds a DaemonConfig from parsed key-value properties.
+func daemonConfigFromProperties(name string, props map[string]string, uid, home string) (DaemonConfig, error) {
 	cfg := DaemonConfig{
 		Name:         name,
 		Restart:      DefaultRestart,
@@ -207,26 +181,7 @@ func parseDaemonSection(name string, lines []string, uid, home string) (DaemonCo
 		Env:          make(map[string]string),
 	}
 
-	for _, line := range lines {
-		// Expect "- key: value"
-		rest, ok := strings.CutPrefix(line, "- ")
-		if !ok {
-			continue
-		}
-
-		key, value, found := strings.Cut(rest, ": ")
-		if !found {
-			// Try with just ":" (no space) for backward compatibility.
-			key, value, found = strings.Cut(rest, ":")
-			if !found {
-				continue
-			}
-		}
-
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-
-		// Expand variables in the value.
+	for key, value := range props {
 		value = expandDaemonVar(value, uid, home)
 
 		switch key {
@@ -253,18 +208,14 @@ func parseDaemonSection(name string, lines []string, uid, home string) (DaemonCo
 		case "socket":
 			cfg.Socket = value
 		case "env":
-			// "env: KEY=VALUE"
 			k, v, found := strings.Cut(value, "=")
 			if !found {
 				return cfg, fmt.Errorf("invalid env format %q (expected KEY=VALUE)", value)
 			}
 			cfg.Env[k] = v
-		default:
-			// Unknown keys are silently ignored for forward compatibility.
 		}
 	}
 
-	// Validation.
 	if cfg.Exec == "" {
 		return cfg, fmt.Errorf("exec is required for daemon %q", name)
 	}
