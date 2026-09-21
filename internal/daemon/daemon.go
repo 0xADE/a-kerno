@@ -44,10 +44,10 @@ func (s DaemonState) String() string {
 // Daemon represents a single managed daemon process.
 // All exported fields except mu are safe to read under the read lock.
 type Daemon struct {
-	// Name is the daemon identifier (matches the section heading in daemons.md).
+	// Name is the daemon identifier (matches the INI section name in daemons.ini).
 	Name string
 
-	// Config is the static configuration for this daemon (loaded from daemons.md).
+	// Config is the static configuration for this daemon (loaded from daemons.ini).
 	Config DaemonConfig
 
 	// State is the current operational state.

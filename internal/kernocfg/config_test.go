@@ -8,7 +8,7 @@ import (
 
 func TestLoadCreatesTemplate(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "a-kerno.md")
+	path := filepath.Join(dir, "a-kerno.ini")
 
 	composer, err := Load(path, "1000", "/home/user")
 	if err != nil {
@@ -27,14 +27,12 @@ func TestLoadCreatesTemplate(t *testing.T) {
 
 func TestLoadParsesComposer(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "a-kerno.md")
+	path := filepath.Join(dir, "a-kerno.ini")
 	content := `# Configuration for a-kerno
 
-Don't rename subheaders!
-
-## composer
-- run: Hyprland --config ${HOME}/hypr.conf
-- restart: on-failure
+[composer]
+run = Hyprland --config ${HOME}/hypr.conf
+restart = on-failure
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)

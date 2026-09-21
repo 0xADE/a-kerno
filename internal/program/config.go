@@ -3,13 +3,14 @@ package program
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/0xADE/a-kerno/internal/mdparse"
+	"github.com/0xADE/a-kerno/internal/iniload"
 )
 
 const (
@@ -31,7 +32,7 @@ type ProgramConfig struct {
 	HealthRetry   int               `md:"health_retry"`   // attempts (default: 3)
 	Env           map[string]string `md:"env"`
 	Restart       bool              `md:"restart"` // restart on failure
-	Source        string            // "markdown" or "desktop"
+	Source        string            // "ini" or "desktop"
 }
 
 // Default values for program config fields.
@@ -44,18 +45,20 @@ const (
 
 // LoadProgramConfigs scans the ADE autostart directory (~/.config/ade/autostart/)
 // and the XDG autostart directory (~/.config/autostart/) for program definitions.
-// .md files take precedence over .desktop files with the same base name.
+// .ini files take precedence over .desktop files with the same base name.
 // uid and home are used for variable expansion.
 func LoadProgramConfigs(autostartDir, xdgAutostartDir, uid, home string) ([]ProgramConfig, error) {
 	var allConfigs []ProgramConfig
 	seen := make(map[string]bool) // tracks names that already have a definition
 
-	// 1. Parse .md files from ADE autostart directory (highest priority).
-	mdConfigs, err := scanDir(autostartDir, ".md", uid, home, "markdown", seen)
+	warnLegacyAutostartMarkdown(autostartDir)
+
+	// 1. Parse .ini files from ADE autostart directory (highest priority).
+	iniConfigs, err := scanDir(autostartDir, ".ini", uid, home, "ini", seen)
 	if err != nil {
 		return nil, fmt.Errorf("scan %s: %w", autostartDir, err)
 	}
-	allConfigs = append(allConfigs, mdConfigs...)
+	allConfigs = append(allConfigs, iniConfigs...)
 
 	// 2. Parse .desktop files from XDG autostart directory (fallback).
 	if xdgAutostartDir != "" {
@@ -115,8 +118,8 @@ func scanDir(dir, ext, uid, home, source string, seen map[string]bool) ([]Progra
 
 		var cfg ProgramConfig
 		switch source {
-		case "markdown":
-			cfg, err = parseMarkdownProgram(fullPath, baseName, uid, home)
+		case "ini":
+			cfg, err = parseINIProgram(fullPath, baseName, uid, home)
 		case "desktop":
 			cfg, err = parseDesktopProgram(fullPath, baseName, uid, home)
 		default:
@@ -132,13 +135,13 @@ func scanDir(dir, ext, uid, home, source string, seen map[string]bool) ([]Progra
 	return configs, nil
 }
 
-// parseMarkdownProgram parses an ADE autostart .md file with "- key: value" lines.
-func parseMarkdownProgram(path, name, uid, home string) (ProgramConfig, error) {
+// parseINIProgram parses an ADE autostart .ini file.
+func parseINIProgram(path, name, uid, home string) (ProgramConfig, error) {
 	cfg := ProgramConfig{
 		Name:          name,
 		Phase:         DefaultPhase,
 		Enabled:       true,
-		Source:        "markdown",
+		Source:        "ini",
 		HealthTimeout: DefaultHealthTimeout,
 		HealthRetry:   DefaultHealthRetry,
 		Env:           make(map[string]string),
@@ -149,14 +152,21 @@ func parseMarkdownProgram(path, name, uid, home string) (ProgramConfig, error) {
 		return cfg, err
 	}
 
-	props, _, err := mdparse.ParseRootLists(data)
+	file, err := iniload.Load(data)
 	if err != nil {
 		return cfg, err
 	}
 
-	for key, value := range props {
-		value = expandVar(value, uid, home)
-		applyProgramProperty(&cfg, key, value)
+	sec := iniload.ProgramSection(file)
+	for _, key := range sec.Keys() {
+		keyName := key.Name()
+		if keyName == "env" {
+			for _, value := range key.ValueWithShadows() {
+				applyProgramProperty(&cfg, "env", expandVar(value, uid, home))
+			}
+			continue
+		}
+		applyProgramProperty(&cfg, keyName, expandVar(key.String(), uid, home))
 	}
 
 	if cfg.Exec == "" {
@@ -164,6 +174,23 @@ func parseMarkdownProgram(path, name, uid, home string) (ProgramConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+func warnLegacyAutostartMarkdown(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if filepath.Ext(entry.Name()) == ".md" {
+			slog.Warn("legacy markdown autostart files are ignored; use .ini",
+				"dir", dir, "example", entry.Name())
+			return
+		}
+	}
 }
 
 func applyProgramProperty(cfg *ProgramConfig, key, value string) {

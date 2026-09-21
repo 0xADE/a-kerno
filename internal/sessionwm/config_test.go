@@ -8,13 +8,13 @@ import (
 
 func writeComposerConfig(t *testing.T, dir, run, restart string) string {
 	t.Helper()
-	path := filepath.Join(dir, "a-kerno.md")
-	content := "# Configuration for a-kerno\n\nDon't rename subheaders!\n\n## composer\n"
+	path := filepath.Join(dir, "a-kerno.ini")
+	content := "# Configuration for a-kerno\n\n[composer]\n"
 	if run != "" {
-		content += "- run: " + run + "\n"
+		content += "run = " + run + "\n"
 	}
 	if restart != "" {
-		content += "- restart: " + restart + "\n"
+		content += "restart = " + restart + "\n"
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestLoadConfigEmpty(t *testing.T) {
 
 func TestLoadConfigMissingFileCreatesTemplate(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "a-kerno.md")
+	path := filepath.Join(dir, "a-kerno.ini")
 	t.Setenv(EnvCompositor, "")
 	t.Setenv(EnvWM, "")
 

@@ -41,11 +41,11 @@ type Config struct {
 	// KernoSock is the path to the management Unix socket.
 	KernoSock string
 
-	// DaemonsMD is the path to the daemons configuration file.
-	DaemonsMD string
+	// DaemonsINI is the path to the daemons configuration file (daemons.ini).
+	DaemonsINI string
 
-	// KernoMD is the path to the a-kerno core configuration file (a-kerno.md).
-	KernoMD string
+	// KernoINI is the path to the a-kerno core configuration file (a-kerno.ini).
+	KernoINI string
 
 	// AutostartDir is the path to the autostart directory.
 	AutostartDir string
@@ -96,8 +96,8 @@ func Init() error {
 		}
 
 		// Paths derived from ConfigHome
-		globalConfig.DaemonsMD = filepath.Join(globalConfig.ConfigHome, "daemons.md")
-		globalConfig.KernoMD = filepath.Join(globalConfig.ConfigHome, "a-kerno.md")
+		globalConfig.DaemonsINI = filepath.Join(globalConfig.ConfigHome, "daemons.ini")
+		globalConfig.KernoINI = filepath.Join(globalConfig.ConfigHome, "a-kerno.ini")
 		globalConfig.AutostartDir = filepath.Join(globalConfig.ConfigHome, "autostart")
 
 		// Collect daemon socket paths from environment

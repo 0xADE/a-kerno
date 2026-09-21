@@ -1,4 +1,4 @@
-// Package kernocfg loads a-kerno.md (mdconfig) for core a-kerno settings.
+// Package kernocfg loads a-kerno.ini for core a-kerno settings.
 package kernocfg
 
 import (
@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/0xADE/a-kerno/internal/mdparse"
+	"github.com/0xADE/a-kerno/internal/iniload"
 )
 
 const (
-	// ComposerSection is the H2 section name for session WM / compositor settings.
+	// ComposerSection is the INI section name for session WM / compositor settings.
 	ComposerSection = "composer"
 )
 
-// Composer holds composer settings from ## composer in a-kerno.md.
+// Composer holds composer settings from [composer] in a-kerno.ini.
 type Composer struct {
 	// Run is the full WM/compositor command line.
 	Run string
@@ -24,10 +24,12 @@ type Composer struct {
 	Restart string
 }
 
-// Load reads a-kerno.md at path and returns the composer section.
+// Load reads a-kerno.ini at path and returns the composer section.
 // If the file does not exist, a template is written and composer defaults are returned.
 // Parse errors are logged and an empty Composer is returned.
 func Load(path, uid, home string) (Composer, error) {
+	warnLegacyMarkdown(path)
+
 	//nolint:gosec // path originates from trusted config directory
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -59,17 +61,22 @@ const defaultTemplate = `# Configuration for a-kerno
 #
 # Managed by a-kerno.
 #
-# Don't rename subheaders!
-#
-# ## composer — session window manager / compositor
+# [composer] — session window manager / compositor
 # Keys:
-#   - run: command line (required for GUI session)
-#   - restart: always | on-failure | disabled
+#   run = command line (required for GUI session)
+#   restart = always | on-failure | disabled
 
-## composer
-- run: Hyprland
-- restart: always
+[composer]
+run = Hyprland
+restart = always
 `
+
+func warnLegacyMarkdown(iniPath string) {
+	mdPath := strings.TrimSuffix(iniPath, filepath.Ext(iniPath)) + ".md"
+	if _, err := os.Stat(mdPath); err == nil {
+		slog.Warn("legacy markdown config is ignored; use INI", "ignored", mdPath, "using", iniPath)
+	}
+}
 
 func writeTemplate(path string) error {
 	dir := filepath.Dir(path)
@@ -83,19 +90,19 @@ func writeTemplate(path string) error {
 }
 
 func parseComposer(data []byte, uid, home string) (Composer, error) {
-	sections, err := mdparse.Parse(data)
+	file, err := iniload.Load(data)
 	if err != nil {
 		return Composer{}, fmt.Errorf("parse: %w", err)
 	}
 
-	sec := sections[ComposerSection]
-	if sec == nil {
+	if !file.HasSection(ComposerSection) {
 		return Composer{}, nil
 	}
 
+	sec := file.Section(ComposerSection)
 	out := Composer{
-		Run:     expandVar(strings.TrimSpace(sec.Properties["run"]), uid, home),
-		Restart: strings.TrimSpace(sec.Properties["restart"]),
+		Run:     expandVar(strings.TrimSpace(iniload.String(sec, "run")), uid, home),
+		Restart: strings.TrimSpace(iniload.String(sec, "restart")),
 	}
 	return out, nil
 }

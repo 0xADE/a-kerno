@@ -5,34 +5,43 @@
 ## Назначение
 
 - Запускается из **`ade-wayland`** или **`ade-xlibre`** ([ade-setup](../ade-setup/)) при ADE-сессии (adm exec'ит `.desktop`; см. [doc/ade-setup.md](../doc/ade-setup.md))
-- Читает декларативный конфиг `~/.config/ade/daemons.md` со списком демонов ADE
+- Читает декларативный конфиг `~/.config/ade/daemons.ini` со списком демонов ADE
 - Запускает демоны как дочерние процессы в указанном порядке
-- Запускает session WM из `a-kerno.md` (`## composer` / `run`); env `ADE_COMPOSITOR` / `ADE_WM` и `ADE_WM_RESTART` перекрывают файл
+- Запускает session WM из `a-kerno.ini` (`[composer]` / `run`); env `ADE_COMPOSITOR` / `ADE_WM` и `ADE_WM_RESTART` перекрывают файл
 - Отслеживает состояние демонов и перезапускает согласно политикам (always, on-failure, once, disabled)
 - Предоставляет управляющий Unix-сокет `/tmp/ade-{UID}/kerno` с протоколом CMDLIST (TXT01 / BIN01)
-- Поддерживает автозапуск пользовательских программ (XDG autostart + Markdown)
+- Поддерживает автозапуск пользовательских программ (XDG autostart + INI)
 - Выполняет graceful shutdown WM и демонов при завершении сессии
 - Клиентская библиотека [`client/kerno/`](client/kerno/client.go) для программного доступа
 
 ## Конфигурация
 
-### `daemons.md`
+### `daemons.ini`
 
-Конфигурация демонов хранится в Markdown-формате в файле `~/.config/ade/daemons.md`.
-Формат: секции `## <name> properties` с ключами `- key: value` и секция `## enabled daemons`
-с task-листом `- [x]` / `- [ ]`.
+Конфигурация демонов хранится в INI в файле `~/.config/ade/daemons.ini`.
+Одна секция = один демон; ключ `enabled` включает или выключает его.
 
-### `a-kerno.md`
-
-Основные настройки a-kerno: `$ADE_CONFIG_HOME/a-kerno.md` (при первом запуске создаётся шаблон).
-
-```markdown
-## composer
-- run: Hyprland --config ~/.config/hypr/hyprland.conf
-- restart: always
+```ini
+[a-lancxo]
+enabled = true
+exec = a-lancxo
+order = 10
+restart = on-failure
+socket = ${ADE_RUNTIME_DIR}/indexd
+env = ADE_INDEXD_SOCK=${ADE_RUNTIME_DIR}/indexd
 ```
 
-Приоритет команды WM: `ADE_COMPOSITOR` → `ADE_WM` → `a-kerno.md` / `run` → headless (пусто).
+### `a-kerno.ini`
+
+Основные настройки a-kerno: `$ADE_CONFIG_HOME/a-kerno.ini` (при первом запуске создаётся шаблон).
+
+```ini
+[composer]
+run = Hyprland --config ~/.config/hypr/hyprland.conf
+restart = always
+```
+
+Приоритет команды WM: `ADE_COMPOSITOR` → `ADE_WM` → `a-kerno.ini` / `run` → headless (пусто).
 `ADE_WM_RESTART` перекрывает `restart` из файла.
 
 ## Переменные окружения
@@ -43,7 +52,7 @@
 | `ADE_RUNTIME_DIR` | Каталог runtime (сокеты, PID) | `/tmp/ade-{UID}` |
 | `ADE_KERNO_SOCK` | Путь к управляющему сокету | `/tmp/ade-{UID}/kerno` |
 | `ADE_COMPOSITOR` / `ADE_WM` | Override команды session WM (Wayland / X11) | — |
-| `ADE_WM_RESTART` | Override рестарта WM: `always` / `on-failure` / `disabled` | из `a-kerno.md` или `always` |
+| `ADE_WM_RESTART` | Override рестарта WM: `always` / `on-failure` / `disabled` | из `a-kerno.ini` или `always` |
 | `ADE_INDEXD_SOCK` | Сокет a-lancxo | `/tmp/ade-{UID}/indexd` |
 | `ADE_SKRIPTO_SOCK` | Сокет a-skripto | `/tmp/ade-{UID}/skripto` |
 
@@ -99,6 +108,7 @@ a-kerno/
 │   ├── config/config.go             — Config, Init()
 │   ├── daemon/                      — управление демонами
 │   ├── feature/registry.go          — реестр фич ADE
+│   ├── iniload/                     — общие LoadOptions для gopkg.in/ini.v1
 │   ├── logdup/                      — дублирование stdout/stderr
 │   ├── orchestrator/orchestrator.go — оркестратор
 │   ├── program/                     — управление пользовательскими программами

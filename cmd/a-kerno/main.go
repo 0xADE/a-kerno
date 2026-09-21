@@ -1,5 +1,5 @@
 // Package main is the entry point for a-kerno, the ADE daemon orchestrator.
-// It reads the declarative configuration ~/.config/ade/daemons.md, launches
+// It reads the declarative configuration ~/.config/ade/daemons.ini, launches
 // daemons as child processes, starts user programs from autostart directories,
 // and coordinates the full startup/shutdown lifecycle through the Orchestrator.
 package main
@@ -38,8 +38,8 @@ func run() int {
 		"config_home", cfg.ConfigHome,
 		"runtime_dir", cfg.RuntimeDir,
 		"kerno_sock", cfg.KernoSock,
-		"daemons_md", cfg.DaemonsMD,
-		"kerno_md", cfg.KernoMD,
+		"daemons_ini", cfg.DaemonsINI,
+		"kerno_ini", cfg.KernoINI,
 		"autostart_dir", cfg.AutostartDir,
 	)
 
@@ -52,13 +52,12 @@ func run() int {
 	uid := currentUser.Uid
 	home := currentUser.HomeDir
 
-	// 3. Load daemon configurations from daemons.md.
-	//    If the file does not exist, a template is created automatically and
-	//    a-kerno starts with an empty daemon list (warning, not fatal).
-	daemonConfigs, err := daemon.LoadConfig(cfg.DaemonsMD, uid, home)
+	// 3. Load daemon configurations from daemons.ini.
+	//    If the file does not exist, a template is created automatically and parsed.
+	daemonConfigs, err := daemon.LoadConfig(cfg.DaemonsINI, uid, home)
 	if err != nil {
 		slog.Warn("failed to load daemon configuration, starting with empty daemon list",
-			"path", cfg.DaemonsMD, "error", err,
+			"path", cfg.DaemonsINI, "error", err,
 		)
 		daemonConfigs = nil
 	}
@@ -104,8 +103,8 @@ func run() int {
 	// 7. Create the program manager.
 	pm := program.NewProgramManager(programConfigs)
 
-	// 8. Create the session WM manager (a-kerno.md ## composer, env overrides).
-	wmCfg := sessionwm.LoadConfig(cfg.KernoMD, uid, home)
+	// 8. Create the session WM manager (a-kerno.ini [composer], env overrides).
+	wmCfg := sessionwm.LoadConfig(cfg.KernoINI, uid, home)
 	wm := sessionwm.NewManager(wmCfg)
 	if wm.Enabled() {
 		slog.Info("session WM configured", "spec", wmCfg.Spec, "restart", wmCfg.Restart)
@@ -139,7 +138,7 @@ func run() int {
 		return 1
 	}
 
-	// 14. Start fsnotify watcher for daemons.md auto-reload.
+	// 14. Start fsnotify watcher for daemons.ini auto-reload.
 	if err := dm.WatchConfig(ctx); err != nil {
 		slog.Warn("failed to start config watcher (continuing without)", "error", err)
 	}

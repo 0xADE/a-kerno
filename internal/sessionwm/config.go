@@ -33,13 +33,13 @@ type Config struct {
 	Restart RestartPolicy
 }
 
-// LoadConfig resolves session WM settings from a-kerno.md and environment.
-// Priority for run: ADE_COMPOSITOR → ADE_WM → a-kerno.md ## composer / run.
+// LoadConfig resolves session WM settings from a-kerno.ini and environment.
+// Priority for run: ADE_COMPOSITOR → ADE_WM → a-kerno.ini [composer] / run.
 // ADE_WM_RESTART overrides restart from file.
-func LoadConfig(kernoMDPath, uid, home string) Config {
-	fileCfg, err := kernocfg.Load(kernoMDPath, uid, home)
+func LoadConfig(kernoINIPath, uid, home string) Config {
+	fileCfg, err := kernocfg.Load(kernoINIPath, uid, home)
 	if err != nil {
-		slog.Warn("failed to load a-kerno.md composer settings", "path", kernoMDPath, "error", err)
+		slog.Warn("failed to load a-kerno.ini composer settings", "path", kernoINIPath, "error", err)
 	}
 
 	spec := strings.TrimSpace(os.Getenv(EnvCompositor))

@@ -23,7 +23,7 @@ import (
 // daemon's LogBuffer.
 const DefaultLogBufferSize = 4096
 
-// DaemonManager manages the lifecycle of all daemons defined in daemons.md.
+// DaemonManager manages the lifecycle of all daemons defined in daemons.ini.
 // It handles ordered startup, parallel launch of same-order daemons,
 // graceful shutdown (reverse order), and readiness probing via Unix sockets.
 type DaemonManager struct {
@@ -34,7 +34,7 @@ type DaemonManager struct {
 	logger  *slog.Logger
 	uid     string
 	home    string
-	dmPath  string // path to daemons.md
+	dmPath  string // path to daemons.ini
 }
 
 // NewDaemonManager creates a new DaemonManager with the given configuration
@@ -49,7 +49,7 @@ func NewDaemonManager(cfg *config.Config, configs []DaemonConfig, uid, home stri
 		logger:  logger,
 		uid:     uid,
 		home:    home,
-		dmPath:  cfg.DaemonsMD,
+		dmPath:  cfg.DaemonsINI,
 	}
 
 	for i := range configs {
@@ -201,7 +201,7 @@ func (m *DaemonManager) Start(ctx context.Context, name string) error {
 	d.mu.Unlock()
 
 	// Build the command.
-	//nolint:gosec // Exec comes from trusted daemons.md config
+	//nolint:gosec // Exec comes from trusted daemons.ini config
 	cmd := exec.CommandContext(ctx, cfg.Exec)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
@@ -391,7 +391,7 @@ func (m *DaemonManager) isProcessAlive(pgid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
-// ConfigPath returns the path to the daemons.md configuration file
+// ConfigPath returns the path to the daemons.ini configuration file
 // being watched/monitored.
 func (m *DaemonManager) ConfigPath() string {
 	return m.dmPath
@@ -407,7 +407,7 @@ func (m *DaemonManager) Home() string {
 	return m.home
 }
 
-// WatchConfig watches the daemons.md configuration file for changes using
+// WatchConfig watches the daemons.ini configuration file for changes using
 // fsnotify. When a change is detected, it reloads the config, compares with
 // the current daemon list, starts new daemons, and stops removed ones.
 // A 1-second debounce prevents reacting to duplicate events.
@@ -419,7 +419,7 @@ func (m *DaemonManager) WatchConfig(ctx context.Context) error {
 		return fmt.Errorf("fsnotify: create watcher: %w", err)
 	}
 
-	// Add the daemons.md file to the watcher.
+	// Add the daemons.ini file to the watcher.
 	if err := watcher.Add(m.dmPath); err != nil {
 		watcher.Close()
 		return fmt.Errorf("fsnotify: watch %s: %w", m.dmPath, err)
@@ -480,7 +480,7 @@ func (m *DaemonManager) WatchConfig(ctx context.Context) error {
 	return nil
 }
 
-// reloadConfig re-reads daemons.md, compares the new config with the
+// reloadConfig re-reads daemons.ini, compares the new config with the
 // current state, starts new daemons, and stops removed daemons.
 func (m *DaemonManager) reloadConfig(ctx context.Context) error {
 	m.logger.Info("reloading daemon configuration", "path", m.dmPath)

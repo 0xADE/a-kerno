@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xADE/a-kerno/internal/mdparse"
+	"github.com/0xADE/a-kerno/internal/iniload"
+	"gopkg.in/ini.v1"
 )
 
 // RestartPolicy defines the daemon restart behavior.
@@ -32,9 +33,9 @@ var validRestartPolicies = map[RestartPolicy]bool{
 }
 
 // DaemonConfig represents the configuration of a single daemon
-// as parsed from a "## <name> properties" section in daemons.md.
+// as parsed from a named section in daemons.ini.
 type DaemonConfig struct {
-	// Name is the daemon identifier (extracted from section heading).
+	// Name is the daemon identifier (INI section name).
 	Name string
 
 	// Exec is the path to the daemon executable (required).
@@ -56,7 +57,7 @@ type DaemonConfig struct {
 	// Env holds additional environment variables for the daemon process.
 	Env map[string]string
 
-	// Enabled indicates whether the daemon is enabled in the task list.
+	// Enabled indicates whether the daemon should be started.
 	Enabled bool
 }
 
@@ -66,43 +67,41 @@ const (
 	DefaultReadyTimeout = 10 * time.Second
 )
 
-// defaultTemplate is the content written to a new daemons.md when the file
+// defaultTemplate is the content written to a new daemons.ini when the file
 // does not exist. It includes commented examples so the user can edit it.
 const defaultTemplate = `# ADE Daemons Configuration
 #
 # Managed by a-kerno. Changes are picked up automatically via fsnotify.
 #
-# Format:
-#   ## enabled daemons      – task list of daemons to launch at startup
-#   ## <name> properties    – per-daemon configuration section
+# One section per daemon. Toggle enabled to start/stop on reload.
+# Property changes do not restart an already running daemon.
 #
-# Keys inside a "properties" section:
-#   - exec: /path/to/binary           (required)
-#   - order: 10                       (startup order, lower = earlier, default: 0)
-#   - restart: on-failure             (always | on-failure | once | disabled)
-#   - ready_timeout: 10               (seconds to wait for socket, default: 10)
-#   - socket: ${ADE_RUNTIME_DIR}/indexd  (optional Unix socket for readiness)
-#   - env: KEY=VALUE                  (extra environment variable, repeatable)
+# Keys:
+#   enabled = true                    (default true)
+#   exec = a-lancxo                   (required; PATH or absolute)
+#   order = 10                        (startup order, lower = earlier, default: 0)
+#   restart = on-failure              (always | on-failure | once | disabled)
+#   ready_timeout = 10                (seconds to wait for socket, default: 10)
+#   socket = ${ADE_RUNTIME_DIR}/indexd
+#   env = KEY=VALUE                   (repeatable)
 
-## enabled daemons
-- [x] a-lancxo
-
-## a-lancxo properties
-- exec: /usr/local/bin/a-lancxo
-- order: 10
-- restart: on-failure
-- ready_timeout: 10
-- socket: ${ADE_RUNTIME_DIR}/indexd
-- env: ADE_INDEXD_SOCK=${ADE_RUNTIME_DIR}/indexd
+[a-lancxo]
+enabled = true
+exec = a-lancxo
+order = 10
+restart = on-failure
+ready_timeout = 10
+socket = ${ADE_RUNTIME_DIR}/indexd
+env = ADE_INDEXD_SOCK=${ADE_RUNTIME_DIR}/indexd
 `
 
-// LoadConfig reads and parses the daemons.md file at the given path.
+// LoadConfig reads and parses the daemons.ini file at the given path.
 // It returns a slice of DaemonConfig sorted by Order.
 //
-// If the file does not exist, a template daemons.md is created and an empty
-// configuration slice is returned with no error.  The caller receives a
-// warning via structured logging.
+// If the file does not exist, a template daemons.ini is created and then parsed.
 func LoadConfig(path string, uid, home string) ([]DaemonConfig, error) {
+	warnLegacyMarkdown(path)
+
 	//nolint:gosec // path originates from trusted config directory
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -111,47 +110,35 @@ func LoadConfig(path string, uid, home string) ([]DaemonConfig, error) {
 				return nil, fmt.Errorf("create template %s: %w", path, createErr)
 			}
 			slog.Warn("daemon config not found, created template for editing", "path", path)
-			return []DaemonConfig{}, nil
+			//nolint:gosec // path originates from trusted config directory
+			data, err = os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("read new template %s: %w", path, err)
+			}
+		} else {
+			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
-		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	sections, err := mdparse.Parse(data)
+	file, err := iniload.Load(data)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	enabledSec := sections["enabled daemons"]
-	var enabled map[string]bool
-	if enabledSec != nil {
-		enabled = enabledSec.Enabled
-	}
-
 	var configs []DaemonConfig
-	for heading, sec := range sections {
-		name, ok := strings.CutSuffix(heading, " properties")
-		if !ok || name == "" || sec == nil {
-			continue
-		}
-
-		cfg, err := daemonConfigFromProperties(name, sec.Properties, uid, home)
+	for _, sec := range iniload.NamedSections(file) {
+		cfg, err := daemonConfigFromSection(sec, uid, home)
 		if err != nil {
-			return nil, fmt.Errorf("section %q: %w", heading, err)
+			return nil, fmt.Errorf("section %q: %w", sec.Name(), err)
 		}
-
-		if en, exists := enabled[name]; exists {
-			cfg.Enabled = en
-		}
-
 		configs = append(configs, cfg)
 	}
 
 	if len(configs) == 0 {
-		slog.Warn("no daemon properties sections found in config, running with empty daemon list", "path", path)
+		slog.Warn("no daemon sections found in config, running with empty daemon list", "path", path)
 		return []DaemonConfig{}, nil
 	}
 
-	// Sort by Order ascending.
 	sort.Slice(configs, func(i, j int) bool {
 		return configs[i].Order < configs[j].Order
 	})
@@ -159,8 +146,13 @@ func LoadConfig(path string, uid, home string) ([]DaemonConfig, error) {
 	return configs, nil
 }
 
-// createTemplateConfig writes the default daemons.md template to path.
-// It also creates parent directories if needed.
+func warnLegacyMarkdown(iniPath string) {
+	mdPath := strings.TrimSuffix(iniPath, filepath.Ext(iniPath)) + ".md"
+	if _, err := os.Stat(mdPath); err == nil {
+		slog.Warn("legacy markdown config is ignored; use INI", "ignored", mdPath, "using", iniPath)
+	}
+}
+
 func createTemplateConfig(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // config dir is user-owned
@@ -172,66 +164,68 @@ func createTemplateConfig(path string) error {
 	return nil
 }
 
-// daemonConfigFromProperties builds a DaemonConfig from parsed key-value properties.
-func daemonConfigFromProperties(name string, props map[string]string, uid, home string) (DaemonConfig, error) {
+func daemonConfigFromSection(sec *ini.Section, uid, home string) (DaemonConfig, error) {
 	cfg := DaemonConfig{
-		Name:         name,
+		Name:         sec.Name(),
 		Restart:      DefaultRestart,
 		ReadyTimeout: DefaultReadyTimeout,
 		Env:          make(map[string]string),
+		Enabled:      iniload.BoolDefault(sec, "enabled", true),
 	}
 
-	for key, value := range props {
-		value = expandDaemonVar(value, uid, home)
+	if exec := iniload.String(sec, "exec"); exec != "" {
+		cfg.Exec = expandDaemonVar(exec, uid, home)
+	}
 
-		switch key {
-		case "exec":
-			cfg.Exec = value
-		case "order":
-			n, err := strconv.Atoi(value)
-			if err != nil {
-				return cfg, fmt.Errorf("invalid order %q: %w", value, err)
-			}
-			cfg.Order = n
-		case "restart":
-			policy := RestartPolicy(value)
-			if !validRestartPolicies[policy] {
-				return cfg, fmt.Errorf("invalid restart policy %q (valid: always, on-failure, once, disabled)", value)
-			}
-			cfg.Restart = policy
-		case "ready_timeout":
-			d, err := parseDuration(value)
-			if err != nil {
-				return cfg, fmt.Errorf("invalid ready_timeout %q: %w", value, err)
-			}
-			cfg.ReadyTimeout = d
-		case "socket":
-			cfg.Socket = value
-		case "env":
-			k, v, found := strings.Cut(value, "=")
-			if !found {
-				return cfg, fmt.Errorf("invalid env format %q (expected KEY=VALUE)", value)
-			}
-			cfg.Env[k] = v
+	if order := iniload.String(sec, "order"); order != "" {
+		n, err := strconv.Atoi(order)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid order %q: %w", order, err)
 		}
+		cfg.Order = n
+	}
+
+	if restart := strings.TrimSpace(iniload.String(sec, "restart")); restart != "" {
+		policy := RestartPolicy(restart)
+		if !validRestartPolicies[policy] {
+			return cfg, fmt.Errorf("invalid restart policy %q (valid: always, on-failure, once, disabled)", restart)
+		}
+		cfg.Restart = policy
+	}
+
+	if timeout := iniload.String(sec, "ready_timeout"); timeout != "" {
+		d, err := parseDuration(timeout)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid ready_timeout %q: %w", timeout, err)
+		}
+		cfg.ReadyTimeout = d
+	}
+
+	if socket := iniload.String(sec, "socket"); socket != "" {
+		cfg.Socket = expandDaemonVar(socket, uid, home)
+	}
+
+	for _, value := range iniload.Shadows(sec, "env") {
+		value = expandDaemonVar(value, uid, home)
+		k, v, found := strings.Cut(value, "=")
+		if !found {
+			return cfg, fmt.Errorf("invalid env format %q (expected KEY=VALUE)", value)
+		}
+		cfg.Env[k] = v
 	}
 
 	if cfg.Exec == "" {
-		return cfg, fmt.Errorf("exec is required for daemon %q", name)
+		return cfg, fmt.Errorf("exec is required for daemon %q", cfg.Name)
 	}
 
 	return cfg, nil
 }
 
-// parseDuration parses a duration string that may be a bare number (seconds)
-// or a Go-style duration string ("5s", "1m30s", etc.).
 func parseDuration(s string) (time.Duration, error) {
-	// Try Go duration parsing first.
 	if d, err := time.ParseDuration(s); err == nil {
 		return d, nil
 	}
 
-	// Try bare number of seconds.
 	if n, err := strconv.Atoi(s); err == nil {
 		return time.Duration(n) * time.Second, nil
 	}
@@ -239,7 +233,6 @@ func parseDuration(s string) (time.Duration, error) {
 	return 0, fmt.Errorf("cannot parse duration %q", s)
 }
 
-// expandDaemonVar substitutes ${UID}, ${HOME}, ${XDG_RUNTIME_DIR}, ${ADE_RUNTIME_DIR} in the string.
 func expandDaemonVar(s, uid, home string) string {
 	s = strings.ReplaceAll(s, "${UID}", uid)
 	s = strings.ReplaceAll(s, "${HOME}", home)
@@ -267,6 +260,3 @@ func adeRuntimeDir(uid string) string {
 func SaveConfig(path string, configs []DaemonConfig) error {
 	return fmt.Errorf("SaveConfig is not yet implemented")
 }
-
-// Ensure filepath import is used (satisfies the linter).
-var _ = filepath.Separator
